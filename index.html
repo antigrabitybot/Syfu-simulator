@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SyFu 血統表シミュレーター v8.0</title>
+<title>SyFu 血統表シミュレーター v7.8</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{--z:#8B5CF6;--l:#22B8CF;--v:#F59E0B;--n:#EF4444;
@@ -43,13 +43,6 @@ a{color:#6fb2ff;}
 /* ===== 競馬式 血統表（全マス／上段=Left・下段=Right）===== */
 table.ped{border-collapse:collapse;width:100%;table-layout:fixed;background:var(--bg);}
 table.ped td{border:1px solid #3a4152;padding:3px 5px;vertical-align:middle;overflow:hidden;position:relative;}
-table.ped.five-gen td{font-size:10px;padding:2px 3px;}
-table.ped.five-gen .nm{font-size:10px;}
-table.ped.five-gen .ln{font-size:9px;}
-table.ped.five-gen .tk{font-size:8px;display:none;}
-table.ped.five-gen .rl{font-size:8px;}
-table.ped.five-gen .nkb{font-size:7px;padding:0 2px;}
-table.ped.five-gen .miss-tag,.ped.five-gen .prov-tag,.ped.five-gen .inh-tag{font-size:7px;padding:0 2px;}
 table.ped td .nm{font-size:11.5px;font-weight:700;line-height:1.15;}
 table.ped td .ln{font-size:10px;opacity:.9;}
 table.ped td .tk{font-size:9px;font-weight:400;opacity:.75;word-break:break-all;}
@@ -196,7 +189,7 @@ body.lg td.inbreed{animation:iblg 1.2s ease-in-out infinite;}
 </head>
 <body>
 <div class="wrap">
- <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v8.0</span></h1>
+ <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v7.8</span></h1>
  <div class="sub">LEFT=上段（血統ベース・母）／RIGHT=下段（父） × OFFICIAL BREED SPEC × PLANNER × EXCEL</div>
 
  <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
@@ -1189,31 +1182,6 @@ function addProvisional(sol,baseNodes){
   if(!tmp[g+1][i*2+1].s)put(g+1,i*2+1,c.lineage);}
  sol.cells=sol.cells.concat(fills);
 }
-/* 案の統合時、意図しない同一IDの重複を解消する。
-   本来別個体であるべきセル（血統が違う／IB用の同一ID指定でない）に
-   同じ名前が付いていたら連番でリネームし、誤インブリードを防ぐ。 */
-function dedupNames(cells){
- const seen=new Map();      // name -> {lineage, isIB}
- let seq=0;
- const nextName=()=>{seq++;return '入手必要'+String.fromCharCode(64+seq);};
- // まずIB用（noteに「同一ID」を含む）を確定として登録
- cells.forEach(c=>{if(/同一ID/.test(c.note||''))seen.set(c.name,{lineage:c.lineage,ib:true});});
- // 使用済みの連番を先に消費して衝突を避ける
- const used=new Set(cells.map(c=>c.name));
- while(used.has('入手必要'+String.fromCharCode(64+seq+1)))seq++;
- return cells.map(c=>{
-  if(/同一ID/.test(c.note||''))return c;           // Golden/Stable用のペアはそのまま
-  const prev=seen.get(c.name);
-  if(!prev){seen.set(c.name,{lineage:c.lineage,ib:false});return c;}
-  // 同名だが、IB指定でない＆血統が違う → 別個体にすべき
-  if(prev.ib||prev.lineage!==c.lineage){
-   let nm;do{nm=nextName();}while(seen.has(nm));
-   seen.set(nm,{lineage:c.lineage,ib:false});
-   return Object.assign({},c,{name:nm});
-  }
-  return c;
- });
-}
 /* ===== Rare + ニックス3本 複合プラン =====
  Origin(Genesis) の Golden（3G×4G）または Stable（4G×4G）インブリードを組みながら
  ニックス3本も同時に成立させる。
@@ -1235,11 +1203,10 @@ function planRareNicks3(nodes){
    const ns2=planNicks(tmp);
    if(ns2.length>0){
     ns2.slice(0,2).forEach(ns=>{
-     const nsCells=ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx));
      sols.push({
       label:'Origin '+ibSol.label+'｜'+ns.label,
       desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
-      cells:dedupNames(ibSol.cells.concat(nsCells))
+      cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
      });
     });
    } else {
@@ -1252,11 +1219,10 @@ function planRareNicks3(nodes){
    }
   } else {
    nickSols.slice(0,2).forEach(ns=>{
-    const nsCells=ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx));
     sols.push({
      label:'Origin '+ibSol.label+'｜'+ns.label,
      desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
-     cells:dedupNames(ibSol.cells.concat(nsCells))
+     cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
     });
    });
   }
@@ -1280,8 +1246,7 @@ function planRun(){
  else if(goal==='outbreed')sols=planOutbreed(nodes);
  else if(goal==='p1floor'){sols=planNicks(nodes).map(s=>({label:s.label,desc:s.desc+'／Left親（1G上段）はP2以上の個体を使用',cells:s.cells}));}
  if(!sols.length){$('planStatus').style.color='#FF7A7A';$('planStatus').textContent='空きマス不足などで提案を生成できませんでした。血統表の空きを増やすか、別の目的をお試しください。';return;}
- /* 仮設定フィラーは生成しない：計画モードは「実際に必要なブリード工程」のみを示す。
-    空きマスは空きのまま＝ユーザーが自由に選べる部分（判定に影響しない）。 */
+ sols.forEach(s=>addProvisional(s,nodes));
  plan={goal,solutions:sols,cur:0};
  renderPlanChips();renderPlanPreview();
 }
@@ -1298,13 +1263,9 @@ function mergedPlanNodes(){
  const nodes=currentGridS();
  const s=plan.solutions[plan.cur];
  if(!s)return nodes;
- // 5Gセルが含まれる場合、nodes[5]を初期化
- const needG=s.cells.reduce((m,c)=>Math.max(m,c.gen||0),0);
- if(needG>=5&&!nodes[5]){nodes[5]=[];for(let i=0;i<32;i++)nodes[5][i]={s:null,edge:(i&1)===0?'L':'R'};}
  s.cells.forEach(c=>{
-  if(c.change){const row=nodes[c.gen];const n=row&&row[c.idx];if(n&&n.s){n.s=Object.assign({},n.s,{change:true,note:c.note});}return;}
-  const row=nodes[c.gen];if(!row||!row[c.idx])return;
-  if(!row[c.idx].s)row[c.idx]={s:{lineage:c.lineage,name:c.name,dispName:c.dispName,pRank:null,ghost:!c.provisional,provisional:!!c.provisional,missing:!!c.missing,note:c.note},edge:(c.idx&1)===0?'L':'R'};
+  if(c.change){const n=nodes[c.gen][c.idx];if(n&&n.s){n.s=Object.assign({},n.s,{change:true,note:c.note});}return;}
+  if(!nodes[c.gen][c.idx].s)nodes[c.gen][c.idx]={s:{lineage:c.lineage,name:c.name,dispName:c.dispName,pRank:null,ghost:!c.provisional,provisional:!!c.provisional,missing:!!c.missing,note:c.note},edge:(c.idx&1)===0?'L':'R'};
  });
  return nodes;
 }
@@ -1313,7 +1274,7 @@ function renderPlanPreview(){
  const sres=evalGrid(nodes);
  $('tree').innerHTML=renderGridTable(nodes,sres);
  LASTNODES=nodes;drawNickLines();drawIbPredLines();
- renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#7ab8ff;"><b>🧭 計画プレビュー表示中</b>：青破線マス＝<b>この計画に必要なブリード工程</b>（「反映」で確定、「クリア」で破棄）。<b>空欄のマスはブリード不要／任意</b>です（判定に影響しません）。判定値は提案を含めた見込みです。</p>');
+ renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#7ab8ff;"><b>🧭 計画プレビュー表示中</b>：青破線マス＝提案（「反映」で確定、「クリア」で破棄）。判定値は提案を含めた見込みです。</p>');
 }
 function planApply(){
  const s=plan.solutions[plan.cur];if(!s)return;
