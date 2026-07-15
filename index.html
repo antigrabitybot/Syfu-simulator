@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SyFu 血統表シミュレーター v7.7</title>
+<title>SyFu 血統表シミュレーター v7.8</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{--z:#8B5CF6;--l:#22B8CF;--v:#F59E0B;--n:#EF4444;
@@ -189,7 +189,7 @@ body.lg td.inbreed{animation:iblg 1.2s ease-in-out infinite;}
 </head>
 <body>
 <div class="wrap">
- <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v7.7</span></h1>
+ <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v7.8</span></h1>
  <div class="sub">LEFT=上段（血統ベース・母）／RIGHT=下段（父） × OFFICIAL BREED SPEC × PLANNER × EXCEL</div>
 
  <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
@@ -245,6 +245,7 @@ body.lg td.inbreed{animation:iblg 1.2s ease-in-out infinite;}
     <div style="min-width:220px;"><label>計画の目的</label>
      <select id="planGoal">
       <option value="rare">レアの誕生（Rare P0）</option>
+      <option value="rare_nicks3">★ レア誕生 ＋ ニックス3本</option>
       <option value="nicks3">ニックス3本</option>
       <option value="premium">Genesis premium 発動</option>
       <option value="inbreed">安全なインブリード成立（Stable/Golden）</option>
@@ -1139,6 +1140,8 @@ function planOutbreed(nodes){
  return[{label:'重複解消案（R側を差し替え）',desc:'R側の重複個体を別IDに変更してアウトブリード化（'+cells.length+'マス）',cells}];
 }
 const GOAL_DESC={
+ rare_nicks3:{e:'Rare P0の誕生経路を確保しながら、同時にニックス3本も成立させます（最高難度・最大期待値配合）。',
+  c:'Origin(Genesis)のGood インブリード（Stable/Golden）を Rare経路①として成立させ、かつ L側とR側の血統グループがZ→L→V→N→Z の相性3本を成立させます。インブリードがDanger/Forbiddenになるとニックスが無効になるため Stable/Golden を厳守します。'},
  rare:{e:'Rare P0の誕生確率を高める配合を設計します。',
   c:'①Origin(Genesis)個体を同一IDでL側3G×R側4G（Golden）またはL4G×R4G（Stable）に重ねる→Goodインブリードとして Rare抽選の上振れ（U×U配合時）。②親にRareを使う固定抽選：L Rare×R Uncommon=20%／Rare×Rare=50%／L Uncommon×R Rare=10%（詳細モード）。'},
  nicks3:{e:'Pランク抽選の上振れ期待が最大になる有効ニックス3本を成立させます。',
@@ -1179,6 +1182,53 @@ function addProvisional(sol,baseNodes){
   if(!tmp[g+1][i*2+1].s)put(g+1,i*2+1,c.lineage);}
  sol.cells=sol.cells.concat(fills);
 }
+/* ===== Rare + ニックス3本 複合プラン =====
+ Origin(Genesis) の Golden（3G×4G）または Stable（4G×4G）インブリードを組みながら
+ ニックス3本も同時に成立させる。
+ 戦略：OriginをL側またはR側の血統表対象マスに配置し、反対側にも同一IDを置く。
+ 同時にL側のグループ構成がZ含む3グループ、R側が相性グループになるよう計画する。 */
+function planRareNicks3(nodes){
+ const sols=[];
+ // まずGolden/Stable原案を作成し、それにニックス3本を追加
+ const ibSols=planInbreedRank(nodes,
+  [[3,4,'Golden'],[4,4,'Stable']],'Origin-★','Origin Good IB（Rare経路）');
+ ibSols.forEach(ibSol=>{
+  // ibSolのセルをマージしたtmp上でニックス計画
+  const tmp=nodes.map(row=>row?row.map(n=>n?{s:n.s?Object.assign({},n.s):null,edge:n.edge}:n):row);
+  ibSol.cells.forEach(c=>{if(!tmp[c.gen][c.idx].s)tmp[c.gen][c.idx]={s:{lineage:c.lineage,name:c.name},edge:(c.idx&1)===0?'L':'R'};});
+  // Genesisが既にL側にある → ZグループはL側に確保済み。ニックス追加
+  const nickSols=planNicks(tmp,{genesisOnL:true});
+  if(nickSols.length===0){
+   // genesisOnL条件なしでも試す
+   const ns2=planNicks(tmp);
+   if(ns2.length>0){
+    ns2.slice(0,2).forEach(ns=>{
+     sols.push({
+      label:'Origin '+ibSol.label+'｜'+ns.label,
+      desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
+      cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
+     });
+    });
+   } else {
+    // ニックス単独は無理でもIBだけでも出す
+    sols.push({
+     label:'Origin '+ibSol.label+'（ニックスは追加手動設定が必要）',
+     desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　※ニックス3本のための空きマスが不足しています。残りのマスに相性血統を手動で配置してください。',
+     cells:ibSol.cells
+    });
+   }
+  } else {
+   nickSols.slice(0,2).forEach(ns=>{
+    sols.push({
+     label:'Origin '+ibSol.label+'｜'+ns.label,
+     desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
+     cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
+    });
+   });
+  }
+ });
+ return sols;
+}
 function renderGoalDesc(){
  const d=GOAL_DESC[$('planGoal').value];
  $('planGoalDesc').innerHTML=d?('<span style="color:#7ab8ff;font-weight:700;">【効果】</span>'+esc(d.e)+'<br><span style="color:#F5C651;font-weight:700;">【発動条件】</span>'+esc(d.c)):'';
@@ -1187,7 +1237,8 @@ function planRun(){
  const goal=$('planGoal').value;
  const nodes=currentGridS();
  let sols=[];
- if(goal==='nicks3')sols=planNicks(nodes);
+ if(goal==='rare_nicks3')sols=planRareNicks3(nodes);
+ else if(goal==='nicks3')sols=planNicks(nodes);
  else if(goal==='premium')sols=planPremium(nodes);
  else if(goal==='rare')sols=planRare(nodes);
  else if(goal==='inbreed')sols=planInbreed(nodes);
