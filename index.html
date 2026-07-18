@@ -347,7 +347,7 @@ const RC={Stable:'#2fb894',Golden:'#F5C651',Danger:'#F0902f',Forbidden:'#FF5A5A'
 let cats=[],uid=0,CUR=null,SCUR=null;
 let simpleMode=false,scell={},ovr={},pendingExpand=null;
 let plan={goal:null,solutions:[],cur:-1};
-let nkLinesOn=false,ibPredOn=false,LASTNODES=null;
+let nkLinesOn=true,ibPredOn=false,LASTNODES=null;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const getCat=id=>cats.find(c=>c.id===id)||null;
@@ -530,7 +530,7 @@ function renderTree(res){
  }
  html+='</table>';
  $('tree').innerHTML=html;
- LASTNODES=null;drawNickLines();
+ LASTNODES=currentGridS();drawNickLines();drawIbLines();drawIbPredLines();
 }
 const chip=g=>'<span class="chip '+GROUPS[g].c+'">'+g+'・'+GROUPS[g].n+'</span>';
 function renderStats(res){
@@ -561,7 +561,7 @@ function renderStats(res){
   if(res.dis&&!res.risk)d+='<p style="margin:.1rem 0;color:#FF5A5A;">⚠ Danger/Forbidden — ニックス・Genesis premium無効</p>';
   if(res.main&&!res.main.elite&&!res.dis)d+='<p style="margin:.1rem 0;color:var(--tm);font-size:12px;">通常個体のStable/Golden：ニックス有効・追加上振れなし</p>';}
  if(res.L&&res.L.elite)d+='<p style="margin:.1rem 0;color:#d9c76a;font-size:12px;">Elite個体をLeft親に使用：そのPランクを受け継ぐ子が最大3体まで誕生（継承ルール。抽選が有利になるわけではありません）。</p>';
- d+='<p class="clicky" style="margin:.1rem 0;cursor:pointer;" data-a="nklines" title="クリック：血統表上でニックス個体を線で接続">有効ニックス '+res.eff+' 本'+(res.prem?'（Genesis premium 発動）':'')+'（クリックで線表示'+(nkLinesOn?'中◉':'')+'）</p>';
+ d+='<p class="clicky" style="margin:.1rem 0;cursor:pointer;" data-a="nklines" title="クリック：血統表上でニックス個体を線で接続">有効ニックス '+res.eff+' 本'+(res.prem?'（Genesis premium 発動）':'')+'（クリックで線表示切替'+(nkLinesOn?'・表示中◉':'')+'）</p>';
  if(res.nk.length)d+='<p style="margin:.2rem 0;">'+res.nk.map(n=>chip(n.l.group)+'<span style="font-size:11px;color:var(--tm);">'+esc(n.l.name)+'</span> → '+chip(n.r.group)+'<span style="font-size:11px;color:var(--tm);">'+esc(n.r.name)+'</span>'+(n.gen?' ★':'')).join('　')+'</p>';
  if(res.floors.length)d+='<p style="margin:.2rem 0;color:var(--tm);font-size:12px;">Pランク最低ライン：'+res.floors.join('／')+'</p>';
  const byGen={1:[],2:[],3:[],4:[]};
@@ -582,7 +582,19 @@ function resolveLR(){
 function renderSim(){
  if(plan.cur>=0){renderPlanPreview();return;}
  const {L,R}=resolveLR();
- if(!L||!R||L===R){$('tree').innerHTML='<p class="hint">Left/Rightに個体を選ぶと評価結果と血統表が表示されます。<br><b style="color:var(--tx);">親を未設定のままでも上の「🧭 計画」は使えます</b>（空の血統表から必要なブリード工程を設計します）。</p>';$('stats').innerHTML='';$('detail').innerHTML='';CUR=null;return;}
+ if(!L||!R||L===R){
+  // 親（1G）未設定でも、計画反映などでマスが埋まっていれば血統表を表示する
+  const nodes=currentGridS();
+  let any=false;for(let g=1;g<=4;g++)for(let i=0;i<Math.pow(2,g);i++)if(nodes[g][i]&&nodes[g][i].s)any=true;
+  if(any){
+   const sres=evalGrid(nodes);
+   $('tree').innerHTML=renderGridTable(nodes,sres);
+   LASTNODES=nodes;drawNickLines();drawIbLines();drawIbPredLines();
+   renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#F5C651;">Left/Right（1G・両親）が未設定です。マスをクリックして個体を割り当てるか、上のLeft/Rightから親を選ぶと完全な判定になります。</p>');
+   CUR=null;return;
+  }
+  $('tree').innerHTML='<p class="hint">Left/Rightに個体を選ぶと評価結果と血統表が表示されます。<br><b style="color:var(--tx);">親を未設定のままでも上の「🧭 計画」は使えます</b>（空の血統表から必要なブリード工程を設計します）。</p>';$('stats').innerHTML='';$('detail').innerHTML='';CUR=null;return;
+ }
  CUR=evaluate(L,R);renderTree(CUR);renderStats(CUR);
 }
 function renderSelects(){
@@ -808,7 +820,56 @@ function drawNickLines(){
  }
  if(drew)tree.appendChild(svg);
 }
-window.addEventListener('resize',()=>{if(nkLinesOn)drawNickLines();if(ibPredOn)drawIbPredLines();});
+window.addEventListener('resize',()=>{if(nkLinesOn)drawNickLines();drawIbLines();if(ibPredOn)drawIbPredLines();});
+/* ===== 実インブリード接続線オーバーレイ =====
+ 血統表対象マスのうち、L側とR側で同一名（tokenId）が重なっているペアを実線で接続。
+ 色＝インブリードランク（Stable緑/Golden金/Danger橙/Forbidden赤）。常時自動表示。 */
+function drawIbLines(){
+ const old=document.getElementById('ibRealOverlay');if(old)old.remove();
+ const tree=$('tree');if(!tree||!LASTNODES)return;
+ const tbl=tree.querySelector('table.ped');if(!tbl)return;
+ if(getComputedStyle(tree).position==='static')tree.style.position='relative';
+ const tr=tree.getBoundingClientRect();
+ const NS='http://www.w3.org/2000/svg';
+ const svg=document.createElementNS(NS,'svg');
+ svg.id='ibRealOverlay';
+ svg.setAttribute('style','position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:7;overflow:visible;');
+ const nodes=LASTNODES;
+ const isPed=(g,i)=>g===1||(i&1)===0;
+ const ents=[[],[]]; // side別 {g,i,name}
+ for(let g=1;g<=4;g++)for(let i=0;i<Math.pow(2,g);i++){
+  if(!isPed(g,i))continue;
+  const n=nodes[g]&&nodes[g][i];if(!n||!n.s)continue;
+  const nm=(n.s.name||'').trim();if(!nm)continue;
+  ents[g===1?i:(i>>(g-1))].push({g,i,name:nm});
+ }
+ let drew=false;
+ ents[0].forEach(a=>ents[1].forEach(b=>{
+  if(a.name!==b.name)return;
+  const rank=inbRank(a.g,b.g);
+  const ta=tree.querySelector('td[data-gen="'+a.g+'"][data-idx="'+a.i+'"]');
+  const tb=tree.querySelector('td[data-gen="'+b.g+'"][data-idx="'+b.i+'"]');
+  if(!ta||!tb)return;
+  const ra=ta.getBoundingClientRect(),rb=tb.getBoundingClientRect();
+  const x1=ra.left-tr.left+ra.width/2,y1=ra.top-tr.top+ra.height/2;
+  const x2=rb.left-tr.left+rb.width/2,y2=rb.top-tr.top+rb.height/2;
+  const cx=Math.min(tr.width-8,Math.max(x1,x2)+40);
+  const p=document.createElementNS(NS,'path');
+  p.setAttribute('d','M'+x1+' '+y1+' C '+cx+' '+y1+', '+cx+' '+y2+', '+x2+' '+y2);
+  p.setAttribute('stroke',RC[rank]);p.setAttribute('stroke-width','2.6');p.setAttribute('fill','none');p.setAttribute('opacity','.95');
+  svg.appendChild(p);
+  [[x1,y1],[x2,y2]].forEach(([x,y])=>{const c=document.createElementNS(NS,'circle');
+   c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r','4');c.setAttribute('fill',RC[rank]);svg.appendChild(c);});
+  // ランクラベル
+  const t=document.createElementNS(NS,'text');
+  t.setAttribute('x',cx-4);t.setAttribute('y',(y1+y2)/2);
+  t.setAttribute('fill',RC[rank]);t.setAttribute('font-size','10');t.setAttribute('font-weight','800');
+  t.setAttribute('text-anchor','end');t.textContent=rank;
+  svg.appendChild(t);
+  drew=true;
+ }));
+ if(drew)tree.appendChild(svg);
+}
 /* ===== インブリード予測オーバーレイ =====
  手入力（自動・仮設定以外）の血統表対象マスから、反対側の「空き」血統表対象マスへ点線。
  同一IDをそこへ置いた場合のインブリードランク色（Stable緑/Golden金/Danger橙/Forbidden赤）。
@@ -885,7 +946,7 @@ function renderGridStats(sres,extra){
  if(!sres){$('stats').innerHTML='';$('detail').innerHTML='<p class="hint">1G（両親）のLとRを記入すると判定が表示されます。</p>';return;}
  if(sres.partial)extra='<p class="hint" style="margin:.2rem 0;color:#F0902f;">⚠ 1G（両親）が揃っていないため簡易判定です。インブリードは入力の都度、即時に反映されます。</p>'+(extra||'');
  $('stats').innerHTML=
-  '<div class="stat clicky" data-a="nklines" title="クリック：血統表上でニックス個体を線で接続"><span>有効ニックス（クリックで線表示）</span><b>'+sres.eff+'本'+(nkLinesOn?' ◉':'')+'</b></div>'
+  '<div class="stat clicky" data-a="nklines" title="クリック：ニックス接続線の表示／非表示を切替"><span>有効ニックス（線の表示切替）</span><b>'+sres.eff+'本'+(nkLinesOn?' ◉':'')+'</b></div>'
   +'<div class="stat"><span>Genesis premium</span><b>'+(sres.prem?'発動':'—')+'</b></div>'
   +'<div class="stat"><span>インブリード</span><b>'+(sres.main?sres.rank:'なし')+'</b></div>'
   +'<div class="stat"><span>配合スコア</span><b>'+sres.score+'</b></div>';
@@ -911,7 +972,7 @@ function renderSimple(){
  const nodes=buildSimpleNodes();
  const sres=evalGrid(nodes);
  $('tree').innerHTML=renderGridTable(nodes,sres);
- LASTNODES=nodes;drawNickLines();drawIbPredLines();
+ LASTNODES=nodes;drawNickLines();drawIbLines();drawIbPredLines();
  SCUR=sres?{nodes,sres}:null;
  renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;">シンプルモードはUncommon×Uncommon想定。インブリードはNFT名の完全一致で判定します。</p>');
 }
@@ -937,7 +998,15 @@ function currentGridS(){
  if(simpleMode)return buildSimpleNodes();
  const {L,R}=resolveLR();
  const nodes=[[],[],[],[],[]];
- if(!L&&!R){for(let g=1;g<=4;g++)for(let i=0;i<Math.pow(2,g);i++)nodes[g][i]={s:null,edge:(i&1)===0?'L':'R'};return nodes;}
+ if(!L&&!R){
+  // 親（1G）未設定でも、マス上書き（計画反映分を含む ovr）があれば血統表として扱う
+  for(let g=1;g<=4;g++)for(let i=0;i<Math.pow(2,g);i++){
+   const c=getOvrCat(g,i);
+   nodes[g][i]={s:c?{lineage:c.lineage,name:String(c.tokenId||'').trim()||c.name,
+    dispName:c.name,pRank:c.pRank}:null,edge:(i&1)===0?'L':'R'};
+  }
+  return nodes;
+ }
  const dn=buildDisplay(L||null,R||null);
  for(let g=1;g<=4;g++)for(let i=0;i<Math.pow(2,g);i++){
   const n=dn[g][i];
@@ -1313,7 +1382,7 @@ function renderPlanPreview(){
  const nodes=mergedPlanNodes();
  const sres=evalGrid(nodes);
  $('tree').innerHTML=renderGridTable(nodes,sres);
- LASTNODES=nodes;drawNickLines();drawIbPredLines();
+ LASTNODES=nodes;drawNickLines();drawIbLines();drawIbPredLines();
  renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#7ab8ff;"><b>🧭 計画プレビュー表示中</b>：青破線マス＝<b>この計画で埋めるべき「子の血統表」上の位置</b>（「反映」で確定、「クリア」で破棄）。<b>空欄のマスは任意</b>（判定に影響しません）。<br><span style="color:#F5C651;">※<b>マス数≠配合回数</b>。青破線は「子の血統表のどこに何血統／同一IDを置くか」を示すもので、そこへ到達する配合工程数は別途です（Golden単独なら最短5配合。ゴール説明の参考手順を参照）。</span></p>');
 }
 function planApply(){
