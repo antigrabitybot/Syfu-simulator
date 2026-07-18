@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SyFu 血統表シミュレーター v7.8</title>
+<title>SyFu 血統表シミュレーター v8.1</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{--z:#8B5CF6;--l:#22B8CF;--v:#F59E0B;--n:#EF4444;
@@ -43,6 +43,13 @@ a{color:#6fb2ff;}
 /* ===== 競馬式 血統表（全マス／上段=Left・下段=Right）===== */
 table.ped{border-collapse:collapse;width:100%;table-layout:fixed;background:var(--bg);}
 table.ped td{border:1px solid #3a4152;padding:3px 5px;vertical-align:middle;overflow:hidden;position:relative;}
+table.ped.five-gen td{font-size:10px;padding:2px 3px;}
+table.ped.five-gen .nm{font-size:10px;}
+table.ped.five-gen .ln{font-size:9px;}
+table.ped.five-gen .tk{font-size:8px;display:none;}
+table.ped.five-gen .rl{font-size:8px;}
+table.ped.five-gen .nkb{font-size:7px;padding:0 2px;}
+table.ped.five-gen .miss-tag,.ped.five-gen .prov-tag,.ped.five-gen .inh-tag{font-size:7px;padding:0 2px;}
 table.ped td .nm{font-size:11.5px;font-weight:700;line-height:1.15;}
 table.ped td .ln{font-size:10px;opacity:.9;}
 table.ped td .tk{font-size:9px;font-weight:400;opacity:.75;word-break:break-all;}
@@ -187,14 +194,13 @@ body.lg td.inbreed{animation:iblg 1.2s ease-in-out infinite;}
  50%{box-shadow:inset 0 0 0 3px #FA5252,0 0 18px 6px rgba(250,82,82,.7);}}
 </style>
 </head>
-<body>
+<body class="lg">
 <div class="wrap">
- <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v7.8</span></h1>
+ <h1>SyFu 血統表シミュレーター <span style="font-size:13px;color:var(--tm);font-weight:400;">v8.1</span></h1>
  <div class="sub">LEFT=上段（血統ベース・母）／RIGHT=下段（父） × OFFICIAL BREED SPEC × PLANNER × EXCEL</div>
 
  <div style="display:flex;gap:8px;align-items:center;margin-bottom:18px;flex-wrap:wrap;">
   <button class="primary" data-a="toggleMode" id="modeBtn">✎ シンプルモードに切り替え</button>
-  <button data-a="toggleTheme" id="themeBtn">✦ Liquid Glass</button>
   <span class="hint" style="margin:0;" id="modeHint">現在：詳細モード（ロスター管理・自動最適化・ウォレット取込が使えます）</span>
  </div>
 
@@ -568,22 +574,24 @@ function renderStats(res){
 function resolveLR(){
  const ovrL=ovr[ovrKey(1,0)]?getCat(ovr[ovrKey(1,0)]):null;
  const ovrR=ovr[ovrKey(1,1)]?getCat(ovr[ovrKey(1,1)]):null;
- const L=ovrL||cats[+$('selL').value];
- const R=ovrR||cats[+$('selR').value];
+ const lv=$('selL').value,rv=$('selR').value;
+ const L=ovrL||(lv!==''?cats[+lv]:null);
+ const R=ovrR||(rv!==''?cats[+rv]:null);
  return{L,R};
 }
 function renderSim(){
  if(plan.cur>=0){renderPlanPreview();return;}
  const {L,R}=resolveLR();
- if(!L||!R||L===R){$('tree').innerHTML='<p class="hint">個体を2体以上登録し、Left/Rightに別個体を選択してください。</p>';$('stats').innerHTML='';$('detail').innerHTML='';CUR=null;return;}
+ if(!L||!R||L===R){$('tree').innerHTML='<p class="hint">Left/Rightに個体を選ぶと評価結果と血統表が表示されます。<br><b style="color:var(--tx);">親を未設定のままでも上の「🧭 計画」は使えます</b>（空の血統表から必要なブリード工程を設計します）。</p>';$('stats').innerHTML='';$('detail').innerHTML='';CUR=null;return;}
  CUR=evaluate(L,R);renderTree(CUR);renderStats(CUR);
 }
 function renderSelects(){
  const R=$('selR'),L=$('selL');const rv=R.value,lv=L.value;
- const op=cats.map((c,i)=>'<option value="'+i+'">'+esc(c.name)+'（'+(c.rarity==='rare'?'R':'U')+(c.elite?'・Elite':'')+'）</option>').join('');
+ const unset='<option value="">（未設定）</option>';
+ const op=unset+cats.map((c,i)=>'<option value="'+i+'">'+esc(c.name)+'（'+(c.rarity==='rare'?'R':'U')+(c.elite?'・Elite':'')+'）</option>').join('');
  R.innerHTML=op;L.innerHTML=op;
- if(cats[lv])L.value=lv;
- if(cats[rv]&&rv!==L.value)R.value=rv;else if(cats.length>1)R.value=(+L.value===0?1:0);
+ L.value=(lv!==''&&cats[lv])?lv:'';
+ R.value=(rv!==''&&cats[rv]&&rv!==L.value)?rv:'';
  renderSim();
 }
 function parentOptions(cur,sel){
@@ -1141,9 +1149,9 @@ function planOutbreed(nodes){
 }
 const GOAL_DESC={
  rare_nicks3:{e:'Rare P0の誕生経路を確保しながら、同時にニックス3本も成立させます（最高難度・最大期待値配合）。',
-  c:'Origin(Genesis)のGood インブリード（Stable/Golden）を Rare経路①として成立させ、かつ L側とR側の血統グループがZ→L→V→N→Z の相性3本を成立させます。インブリードがDanger/Forbiddenになるとニックスが無効になるため Stable/Golden を厳守します。'},
+  c:'Origin(Genesis)のGood インブリード（Stable/Golden）を Rare経路①として成立させ、かつ L側とR側の血統グループがZ→L→V→N→Z の相性3本を成立させます。インブリードがDanger/Forbiddenになるとニックスが無効になるため Stable/Golden を厳守します。<br><span style="color:var(--tm);font-size:11px;">※Origin部分は「レアの誕生」ゴール参照のSTEP1-5型で最短5配合。ニックス3本ぶんの相性血統も同じ子の血統表内に別マスで用意する必要があり、マス数（提案表示）＝配合回数ではありません。ニックス側の各血統は既保有の相性個体を親側に組み込むほど配合回数が節約できます。</span>'},
  rare:{e:'Rare P0の誕生確率を高める配合を設計します。',
-  c:'①Origin(Genesis)個体を同一IDでL側3G×R側4G（Golden）またはL4G×R4G（Stable）に重ねる→Goodインブリードとして Rare抽選の上振れ（U×U配合時）。②親にRareを使う固定抽選：L Rare×R Uncommon=20%／Rare×Rare=50%／L Uncommon×R Rare=10%（詳細モード）。'},
+  c:'①Origin(Genesis)個体を同一IDでL側3G×R側4G（Golden）またはL4G×R4G（Stable）に重ねる→Goodインブリードとして Rare抽選の上振れ（U×U配合時）。②親にRareを使う固定抽選：L Rare×R Uncommon=20%／Rare×Rare=50%／L Uncommon×R Rare=10%（詳細モード）。<br><b style="color:#9fd3ff;">▼ Golden（子3G×4G）を最短5配合で達成する参考手順（Origin×1体で共有）</b>：<br>①Origin(L)×OG → A（AにOrigin血が1G）<br>②A(L)×OG → B（Bの血統表：Origin 2G）<br>③OG(L)×A(R) → C（★Right置きトリック：A本人は消え、Origin血だけ2G継承）<br>④C(L)×OG → D（Dの血統表：Origin 3G）<br>⑤B(L)×D(R) → 子（子の血統表：Origin 3G×4G＝Golden）<br><span style="color:var(--tm);font-size:11px;">※青破線マスは<b>子の血統表上の位置</b>。マス数と実配合数は別物です（Golden単独なら最短5配合／マス数は整合フィラー含む表示です）。</span>'},
  nicks3:{e:'Pランク抽選の上振れ期待が最大になる有効ニックス3本を成立させます。',
   c:'L側とR側の血統グループが Z→L→V→N→Z の相性関係にある組合せ（例：L側にZ・L・V、R側にL・V・N）。同じ血統・同じ組合せは重複カウントされません。Danger/Forbiddenインブリードがあると全ニックス無効。'},
  premium:{e:'ニックス上振れに加え、Genesis premium（追加のPランク上振れ）を発動させます。',
@@ -1182,6 +1190,31 @@ function addProvisional(sol,baseNodes){
   if(!tmp[g+1][i*2+1].s)put(g+1,i*2+1,c.lineage);}
  sol.cells=sol.cells.concat(fills);
 }
+/* 案の統合時、意図しない同一IDの重複を解消する。
+   本来別個体であるべきセル（血統が違う／IB用の同一ID指定でない）に
+   同じ名前が付いていたら連番でリネームし、誤インブリードを防ぐ。 */
+function dedupNames(cells){
+ const seen=new Map();      // name -> {lineage, isIB}
+ let seq=0;
+ const nextName=()=>{seq++;return '入手必要'+String.fromCharCode(64+seq);};
+ // まずIB用（noteに「同一ID」を含む）を確定として登録
+ cells.forEach(c=>{if(/同一ID/.test(c.note||''))seen.set(c.name,{lineage:c.lineage,ib:true});});
+ // 使用済みの連番を先に消費して衝突を避ける
+ const used=new Set(cells.map(c=>c.name));
+ while(used.has('入手必要'+String.fromCharCode(64+seq+1)))seq++;
+ return cells.map(c=>{
+  if(/同一ID/.test(c.note||''))return c;           // Golden/Stable用のペアはそのまま
+  const prev=seen.get(c.name);
+  if(!prev){seen.set(c.name,{lineage:c.lineage,ib:false});return c;}
+  // 同名だが、IB指定でない＆血統が違う → 別個体にすべき
+  if(prev.ib||prev.lineage!==c.lineage){
+   let nm;do{nm=nextName();}while(seen.has(nm));
+   seen.set(nm,{lineage:c.lineage,ib:false});
+   return Object.assign({},c,{name:nm});
+  }
+  return c;
+ });
+}
 /* ===== Rare + ニックス3本 複合プラン =====
  Origin(Genesis) の Golden（3G×4G）または Stable（4G×4G）インブリードを組みながら
  ニックス3本も同時に成立させる。
@@ -1203,10 +1236,11 @@ function planRareNicks3(nodes){
    const ns2=planNicks(tmp);
    if(ns2.length>0){
     ns2.slice(0,2).forEach(ns=>{
+     const nsCells=ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx));
      sols.push({
       label:'Origin '+ibSol.label+'｜'+ns.label,
       desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
-      cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
+      cells:dedupNames(ibSol.cells.concat(nsCells))
      });
     });
    } else {
@@ -1219,10 +1253,11 @@ function planRareNicks3(nodes){
    }
   } else {
    nickSols.slice(0,2).forEach(ns=>{
+    const nsCells=ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx));
     sols.push({
      label:'Origin '+ibSol.label+'｜'+ns.label,
      desc:'【Rare経路①：Origin Good IB】'+ibSol.desc+'　＋　【ニックス3本】'+ns.desc,
-     cells:ibSol.cells.concat(ns.cells.filter(c=>!ibSol.cells.some(ic=>ic.gen===c.gen&&ic.idx===c.idx)))
+     cells:dedupNames(ibSol.cells.concat(nsCells))
     });
    });
   }
@@ -1246,7 +1281,8 @@ function planRun(){
  else if(goal==='outbreed')sols=planOutbreed(nodes);
  else if(goal==='p1floor'){sols=planNicks(nodes).map(s=>({label:s.label,desc:s.desc+'／Left親（1G上段）はP2以上の個体を使用',cells:s.cells}));}
  if(!sols.length){$('planStatus').style.color='#FF7A7A';$('planStatus').textContent='空きマス不足などで提案を生成できませんでした。血統表の空きを増やすか、別の目的をお試しください。';return;}
- sols.forEach(s=>addProvisional(s,nodes));
+ /* 仮設定フィラーは生成しない：計画モードは「実際に必要なブリード工程」のみを示す。
+    空きマスは空きのまま＝ユーザーが自由に選べる部分（判定に影響しない）。 */
  plan={goal,solutions:sols,cur:0};
  renderPlanChips();renderPlanPreview();
 }
@@ -1263,9 +1299,13 @@ function mergedPlanNodes(){
  const nodes=currentGridS();
  const s=plan.solutions[plan.cur];
  if(!s)return nodes;
+ // 5Gセルが含まれる場合、nodes[5]を初期化
+ const needG=s.cells.reduce((m,c)=>Math.max(m,c.gen||0),0);
+ if(needG>=5&&!nodes[5]){nodes[5]=[];for(let i=0;i<32;i++)nodes[5][i]={s:null,edge:(i&1)===0?'L':'R'};}
  s.cells.forEach(c=>{
-  if(c.change){const n=nodes[c.gen][c.idx];if(n&&n.s){n.s=Object.assign({},n.s,{change:true,note:c.note});}return;}
-  if(!nodes[c.gen][c.idx].s)nodes[c.gen][c.idx]={s:{lineage:c.lineage,name:c.name,dispName:c.dispName,pRank:null,ghost:!c.provisional,provisional:!!c.provisional,missing:!!c.missing,note:c.note},edge:(c.idx&1)===0?'L':'R'};
+  if(c.change){const row=nodes[c.gen];const n=row&&row[c.idx];if(n&&n.s){n.s=Object.assign({},n.s,{change:true,note:c.note});}return;}
+  const row=nodes[c.gen];if(!row||!row[c.idx])return;
+  if(!row[c.idx].s)row[c.idx]={s:{lineage:c.lineage,name:c.name,dispName:c.dispName,pRank:null,ghost:!c.provisional,provisional:!!c.provisional,missing:!!c.missing,note:c.note},edge:(c.idx&1)===0?'L':'R'};
  });
  return nodes;
 }
@@ -1274,7 +1314,7 @@ function renderPlanPreview(){
  const sres=evalGrid(nodes);
  $('tree').innerHTML=renderGridTable(nodes,sres);
  LASTNODES=nodes;drawNickLines();drawIbPredLines();
- renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#7ab8ff;"><b>🧭 計画プレビュー表示中</b>：青破線マス＝提案（「反映」で確定、「クリア」で破棄）。判定値は提案を含めた見込みです。</p>');
+ renderGridStats(sres,'<p class="hint" style="margin:.2rem 0;color:#7ab8ff;"><b>🧭 計画プレビュー表示中</b>：青破線マス＝<b>この計画で埋めるべき「子の血統表」上の位置</b>（「反映」で確定、「クリア」で破棄）。<b>空欄のマスは任意</b>（判定に影響しません）。<br><span style="color:#F5C651;">※<b>マス数≠配合回数</b>。青破線は「子の血統表のどこに何血統／同一IDを置くか」を示すもので、そこへ到達する配合工程数は別途です（Golden単独なら最短5配合。ゴール説明の参考手順を参照）。</span></p>');
 }
 function planApply(){
  const s=plan.solutions[plan.cur];if(!s)return;
@@ -1747,10 +1787,6 @@ document.addEventListener('click',e=>{
   else if(a==='applyExpand'){applyExpand();}
   else if(a==='skipExpand'){hideBanner();}
   else if(a==='toggleMode'){setMode(!simpleMode);}
-  else if(a==='toggleTheme'){
-   const lg=document.body.classList.toggle('lg');
-   $('themeBtn').textContent=lg?'● ダークモード':'✦ Liquid Glass';
-  }
   else if(a==='sclear'){
    if(simpleMode){scell={};planClear(false);renderSimple();}
    else{ovr={};$('selL').value='';$('selR').value='';hideBanner();planClear(false);renderSim();}
@@ -1768,8 +1804,9 @@ document.addEventListener('change',e=>{const t=e.target;
  if(t.id==='planGoal'){renderGoalDesc();return;}
  if(t.id==='selR'||t.id==='selL'){
   const gi=t.id==='selL'?0:1;
-  const cat=cats[+t.value];
-  const other=cats[+$(gi===0?'selR':'selL').value];
+  const cat=t.value===''?null:cats[+t.value];
+  const ov=$(gi===0?'selR':'selL').value;
+  const other=ov===''?null:cats[+ov];
   if(cat&&other&&cat.id===other.id){alert('同一個体をLとRの両方に設定することはできません（自分自身との配合は不可）。');t.value='';return;}
   if(cat){ovr[ovrKey(1,gi)]=cat.id;clearOvrChildren(1,gi);}
   else{delete ovr[ovrKey(1,gi)];}
